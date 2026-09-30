@@ -1,0 +1,652 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 380px;
+  height: 520px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  background: #f5f5f5;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background: #1a5276;
+  color: white;
+  padding: 12px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subtitle {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* Medal banner */
+.medal-banner {
+  background: #fff8e1;
+  border-bottom: 2px solid #ffd700;
+  padding: 8px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.medal-close {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 18px;
+  color: #b8860b;
+  cursor: pointer;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.medal-close:hover {
+  color: #8b6914;
+}
+
+.medal-summary {
+  font-weight: 600;
+  font-size: 13px;
+  color: #b8860b;
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+
+.medal-summary:hover {
+  color: #8b6914;
+}
+
+.medal-arrow {
+  display: inline-block;
+  font-size: 10px;
+  margin-right: 4px;
+  transition: transform 0.15s;
+}
+
+.medal-total {
+  font-weight: 400;
+  font-size: 11px;
+  color: #999;
+}
+
+.medal-new-tag {
+  font-size: 11px;
+  color: #d32f2f;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.medal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 2px;
+  margin-bottom: 8px;
+  display: none; /* collapsed by default */
+}
+
+.medal-table.expanded {
+  display: table;
+}
+
+.medal-table thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 10px;
+  color: #b8860b;
+  border-bottom: 1px solid #f0d860;
+  padding: 2px 4px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.medal-table thead th:first-child {
+  width: 20px;
+  padding-right: 0;
+}
+
+.medal-table tbody td {
+  padding: 2px 4px;
+  color: #555;
+  border-bottom: 1px solid #f5edc8;
+  line-height: 1.3;
+}
+
+.medal-table tbody td:first-child {
+  font-size: 13px;
+  padding-right: 0;
+}
+
+.medal-new td {
+  background: #fff3c4;
+  font-weight: 600;
+}
+
+.medal-updates {
+  padding: 4px 0 2px 0;
+  border-top: 1px solid #f0d860;
+  margin-top: 4px;
+}
+
+.medal-updates-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.medal-updates-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: #b8860b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.medal-updates-close {
+  font-size: 14px;
+  color: #b8860b;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.medal-updates-close:hover {
+  color: #8b6914;
+}
+
+.medal-update-line {
+  font-size: 11px;
+  color: #5d4037;
+  font-weight: 500;
+  line-height: 1.5;
+  padding-left: 4px;
+}
+
+/* Chat area — THIS is the scrollable container */
+#chat-area {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  padding: 12px;
+}
+
+/* Messages inside chat area */
+.message {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  margin-bottom: 8px;
+}
+
+.message.bot {
+  background: white;
+  color: #333;
+  border: 1px solid #e0e0e0;
+  border-bottom-left-radius: 4px;
+}
+
+.message.user {
+  background: #1a5276;
+  color: white;
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
+}
+
+.message.error {
+  background: #fdecea;
+  color: #b71c1c;
+  border: 1px solid #f5c6cb;
+}
+
+.message.competition {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #c8e6c9;
+  font-size: 13px;
+}
+
+/* Athlete card */
+.athlete-card {
+  max-width: 95%;
+  padding: 0;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  overflow: visible;
+  background: white;
+  white-space: normal;
+}
+
+.card-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.card-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a5276;
+}
+
+.card-event {
+  font-size: 12px;
+  color: #777;
+  margin-top: 2px;
+}
+
+.card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #eee;
+}
+
+.card-stat {
+  flex: 1 1 auto;
+  min-width: 80px;
+  text-align: center;
+  padding: 10px 4px;
+  border-right: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+}
+
+.card-stat:last-child {
+  border-right: none;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #27ae60;
+}
+
+.stat-label {
+  font-size: 9px;
+  color: #999;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+.card-pills {
+  padding: 8px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.card-pill {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: #eaf2f8;
+  color: #1a5276;
+}
+
+.card-summary {
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  color: #555;
+  line-height: 1.4;
+}
+
+/* Competition card */
+.competition-card {
+  max-width: 95%;
+  padding: 0;
+  border: 1px solid #c8e6c9;
+  border-radius: 12px;
+  overflow: visible;
+  background: white;
+  white-space: normal;
+  margin-bottom: 8px;
+}
+
+.comp-title {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  background: #27ae60;
+  border-radius: 12px 12px 0 0;
+}
+
+.comp-subtitle {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #777;
+  background: #f9f9f9;
+  border-bottom: 1px solid #eee;
+}
+
+.comp-event {
+  padding: 8px 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.comp-event:last-child {
+  border-bottom: none;
+}
+
+.comp-event-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a5276;
+  margin-bottom: 4px;
+}
+
+.comp-athlete-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.comp-athlete-name {
+  color: #333;
+}
+
+.comp-athlete-result {
+  color: #777;
+  font-size: 11px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.comp-medal-tag {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  color: white;
+  margin-right: 4px;
+}
+
+.comp-medal-gold-tag { background: #FFD700; color: #333; }
+.comp-medal-silver-tag { background: #C0C0C0; color: #333; }
+.comp-medal-bronze-tag { background: #CD7F32; color: white; }
+
+.comp-medal-gold .comp-athlete-name,
+.comp-medal-silver .comp-athlete-name,
+.comp-medal-bronze .comp-athlete-name {
+  font-weight: 600;
+}
+
+.comp-medal-gold .comp-athlete-result,
+.comp-medal-silver .comp-athlete-result,
+.comp-medal-bronze .comp-athlete-result {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+/* Upcoming event card */
+.upcoming-card {
+  max-width: 95%;
+  padding: 0;
+  border: 1px solid #b3d4fc;
+  border-radius: 12px;
+  overflow: visible;
+  background: white;
+  white-space: normal;
+  margin-bottom: 8px;
+}
+
+.upcoming-title {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  background: #1a5276;
+  border-radius: 12px 12px 0 0;
+}
+
+.upcoming-subtitle {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #777;
+  background: #f0f6ff;
+  border-bottom: 1px solid #dce8f5;
+}
+
+.upcoming-status {
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.upcoming-status-confirmed {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-bottom: 1px solid #c8e6c9;
+}
+
+.upcoming-status-potential {
+  background: #e3f2fd;
+  color: #1565c0;
+  border-bottom: 1px solid #bbdefb;
+}
+
+.upcoming-status-pending {
+  background: #fff8e1;
+  color: #f57f17;
+  border-bottom: 1px solid #ffecb3;
+}
+
+.upcoming-event {
+  padding: 8px 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.upcoming-event:last-child {
+  border-bottom: none;
+}
+
+.upcoming-event-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a5276;
+  margin-bottom: 2px;
+}
+
+.upcoming-athletes {
+  font-size: 11px;
+  color: #555;
+  line-height: 1.4;
+}
+
+/* Bottom bar */
+.actions {
+  padding: 6px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#btn-competing {
+  flex: 1;
+  padding: 8px;
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#btn-competing:hover {
+  background: #219a52;
+}
+
+#btn-competing:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+#btn-upcoming {
+  flex: 1;
+  padding: 8px;
+  background: #1a5276;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#btn-upcoming:hover {
+  background: #154360;
+}
+
+#btn-upcoming:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+#btn-clear {
+  padding: 8px 12px;
+  background: #e0e0e0;
+  color: #555;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#btn-clear:hover {
+  background: #ccc;
+}
+
+.input-area {
+  display: flex;
+  padding: 8px 12px;
+  gap: 8px;
+  background: white;
+  border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+#user-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  outline: none;
+  font-size: 14px;
+}
+
+#user-input:focus {
+  border-color: #1a5276;
+}
+
+#btn-send {
+  padding: 8px 16px;
+  background: #1a5276;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+#btn-send:hover {
+  background: #154360;
+}
+
+#btn-send:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+#status-bar {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #999;
+  text-align: center;
+  min-height: 20px;
+  flex-shrink: 0;
+}
+
+/* Thinking bubble */
+.thinking-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border-bottom-left-radius: 4px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  margin-bottom: 8px;
+}
+
+.thinking-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  height: 16px;
+}
+
+.thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1a5276;
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thinking-status {
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+  transition: opacity 0.3s;
+}

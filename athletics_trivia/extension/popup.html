@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BhagYahanSe</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <h1>BhagYahanSe</h1>
+    <span class="subtitle">India ke athletes, unki kahani</span>
+  </div>
+
+  <div id="chat-area">
+    <div class="message bot">
+      Namaste! I'm BhagYahanSe — your guide to Indians in athletics. Ask me about any athlete, check who's competing right now, or see what's coming up next.
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="btn-competing" title="Check current competitions">Current Events</button>
+    <button id="btn-upcoming" title="Upcoming events in next 12 months">Upcoming Events</button>
+    <button id="btn-clear" title="Clear chat and start fresh">Clear Chat</button>
+  </div>
+
+  <div class="input-area">
+    <input type="text" id="user-input" placeholder="Ask about an Indian athlete..." autofocus>
+    <button id="btn-send">Send</button>
+  </div>
+
+  <div id="status-bar">
+    <span id="status-text"></span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

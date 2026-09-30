@@ -1,0 +1,275 @@
+# Athletics Trivia Agent — Build Journal & Documentation
+
+## Project Concept
+An AI-powered athletics trivia agent focused on Indian athletes and the Asian Games.
+Built as a learning project to understand how agent frameworks, tool use, and LLM
+orchestration work. The agent can look up athletes, scrape Wikipedia for new data,
+check nationality, compare records, save user preferences, and refuse non-Indian athletes.
+
+Target user: Me (PM exploring agent development). Eventually shareable via Chrome extension.
+
+---
+
+## How It Was Built — Full Journey
+
+### Phase 0: Setup
+- Installed Python 3.13 via Homebrew
+- Created project at ~/Desktop/claude-projects/athletics-agent/
+- Set up virtual environment (venv)
+- Got Google AI Studio API key (free) for Gemini
+- Installed google-adk (Google Agent Development Kit)
+
+### Phase 1: First Agent (Google ADK + Gemini)
+- Built a single tool: get_athlete_info() with hardcoded data for 3 athletes
+- Learned the agent loop: User message → LLM decides action → Tool executes → LLM reads result → Response
+- Key concept: The LLM doesn't run code. It outputs a structured request ("call get_athlete_info with name=Neeraj Chopra"), the framework runs it, and feeds the result back.
+- ADK structure requires: agent package folder → __init__.py + agent.py with root_agent variable
+- ADK dev UI (adk web) had a bug (404 on /run_sse), used adk run instead
+
+### Problems encountered in Phase 1:
+- Indentation errors when pasting code (Python is whitespace-sensitive)
+- __init__.py needed in every folder that's imported from
+- gemini-2.0-flash was retired, had to switch to gemini-3.5-flash-lite, then gemini-3.5-flash
+- Gemini free tier rate limits (5 requests/minute) and 503 errors during high demand
+
+### Phase 2: Multiple Tools + Real Data
+
+#### Web Scraping (scraper/scrape_athletes.py)
+- Used requests + BeautifulSoup to scrape Wikipedia pages for 15 Indian athletes
+- Learned: Wikipedia blocks requests without User-Agent headers (403 error)
+- Fix: Added headers = {"User-Agent": "AthleticsTrivia/1.0 (student project)"}
+- Scraped: name, event, personal best, birth date, summary, achievements from Wikipedia infoboxes
+- Stored as JSON in data/athletes.json
+
+#### Dynamic Scraping Tool (tools/scraper_tool.py)
+- Built scrape_and_add_athlete() — agent can scrape new athletes on demand
+- Reuses the same scrape_athlete() function from the pre-load script
+- Key insight: Write scraping code once, use it two ways (pre-load script + agent tool)
+
+#### Nationality Filter (tools/nationality.py)
+- Built check_nationality() — scrapes Wikipedia to check if athlete is Indian
+- First approach: Tell the LLM to check nationality via instruction → FAILED
+  - Gemini ignored the instruction and answered about Usain Bolt, Verstappen, Federer from its own training data
+  - Even with mode="ANY" (force tool calling), the model skipped tools
+  - Even with strict "NEVER answer about non-Indian athletes" instructions, it still did
+  - Cached session history made it worse (model followed previous patterns)
+- Second approach: Code-level filter → PARTIALLY WORKED
+  - Moved nationality check inside scraper_tool.py (Python code, not LLM instruction)
+  - Tool returns BLOCKED error for non-Indian athletes
+  - But model still answered from its own knowledge without calling tools
+
+#### Framework Switch: ADK → LangChain + OpenRouter
+- Gemini kept hitting rate limits (503, 429 errors) on free tier
+- Switched to LangChain framework + OpenRouter (free model router)
+- Key learning: The tools stayed the same — only the wrapper changed
+- LangChain differences from ADK:
+  - Tools wrapped with @tool decorator
+  - Instructions go in ChatPromptTemplate / system_prompt
+  - Agent created with create_agent() instead of Agent()
+  - Run with python command instead of adk run
+- OpenRouter: Uses OpenAI-compatible API, routes to free models automatically
+- Result: Non-Indian athlete filter finally worked! LangChain + OpenRouter respected tool calling
+
+#### Partial Match + Clarification (tools/athlete.py)
+- Instead of auto-returning on partial name match, returns clarification
+- "chopra" → "Did you mean Neeraj Chopra? Please confirm the full name."
+- Instruction added: "ALWAYS ask for full name if only one name given"
+
+#### Session Memory
+- Problem: Each message was sent independently — no conversation context
+- Fix: Accumulate messages in a list, send full history each turn
+- Session memory = RAM (lost on restart)
+- Long-term memory = preferences saved to JSON file (survives restart)
+
+#### User Preferences (tools/preferences.py)
+- save_user_preference(category, value) — saves to data/user_preferences.json
+- get_user_preferences() — loads preferences
+- Categories: favorite_athletes, favorite_events, interests
+- Agent instruction: "When user says they like/follow something, save it"
+
+#### Records Comparison (tools/records.py)
+- compare_to_records(athlete_name, event) — scrapes Wikipedia for world/Olympic records
+- Compares against athlete's personal best
+- Agent instruction: "When user asks about records, call compare_to_records"
+
+#### Database Cleanup (scraper/cleanup.py)
+- Resets athletes.json to original 15 pre-loaded athletes
+- Removes dynamically added athletes
+- Can be automated with cron job every 48 hours
+
+---
+
+## Key Lessons Learned
+
+### 1. The Agent Loop
+User message → LLM decides which tool → Framework runs tool → Result fed back to LLM → LLM responds
+This is the fundamental pattern. Everything else is just tooling around it.
+
+### 2. Instructions Are Code
+The system prompt/instruction is not decoration — it's sent to the LLM on every API call.
+It directly controls agent behavior. Vague instructions get ignored; specific ones get followed.
+
+### 3. LLMs Will Ignore Instructions
+Small models (gemini-3.5-flash-lite) skip tool calls when they already "know" the answer.
+You cannot trust the LLM to follow rules — enforce constraints in Python code, not prompts.
+
+### 4. Framework ≠ Magic
+ADK, LangChain, CrewAI — they all do the same thing: manage the agent loop.
+The tools are yours. The instructions are yours. The framework is just plumbing.
+
+### 5. Indentation Matters in Python
+Every file had indentation issues when pasting code. Python uses whitespace to define code blocks.
+def, if, for — everything inside must be indented by exactly 4 spaces.
+
+### 6. APIs Break
+Gemini retired models mid-project (2.0-flash → 3.5-flash). Free tiers hit rate limits.
+Always have a fallback plan (we switched to OpenRouter).
+
+### 7. Code-Level Filters > Prompt-Level Filters
+When we needed to block non-Indian athletes:
+- Prompt approach: "Never answer about non-Indian athletes" → Model ignored it
+- Code approach: Python function checks nationality, returns BLOCKED → Works every time
+
+### 8. Session vs Long-Term Memory
+- Session memory: Messages list in RAM. Gone on restart. Good for conversation context.
+- Long-term memory: JSON file on disk. Survives restarts. Good for user preferences.
+- Checkpointer (LangGraph): Auto-saves full conversation to SQLite. Overkill for this project.
+
+---
+
+## Tech Stack
+
+| Component | Technology | Cost |
+|---|---|---|
+| Language | Python 3.13 | Free |
+| Agent Framework (v1) | Google ADK 2.10.0 | Free |
+| Agent Framework (v2) | LangChain 1.4.3 | Free |
+| LLM (v1) | Gemini 3.5 Flash | Free tier |
+| LLM (v2) | OpenRouter (free models) | Free |
+| Web Scraping | requests + BeautifulSoup | Free |
+| Data Storage | JSON files | Free |
+| Code Editor | VS Code | Free |
+| Total | | $0 |
+
+---
+
+## Current Project Structure
+
+```
+athletics-agent/
+├── .env                              # API keys (GOOGLE_API_KEY, OPENROUTER_API_KEY)
+├── athletics_trivia/
+│   ├── __init__.py
+│   ├── agent.py                      # Google ADK agent (legacy, kept for reference)
+│   ├── agent_langchain.py            # LangChain + OpenRouter agent (active)
+│   ├── data/
+│   │   ├── athletes.json             # Scraped athlete database
+│   │   └── user_preferences.json     # User's favorite athletes/events
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── athlete.py                # get_athlete_info() — lookup from JSON
+│   │   ├── scraper_tool.py           # scrape_and_add_athlete() — dynamic Wikipedia scrape
+│   │   ├── nationality.py            # check_nationality() — Indian athlete filter
+│   │   ├── preferences.py            # save/get user preferences
+│   │   ├── records.py                # compare_to_records() — world/Olympic records
+│   │   ├── competitions.py           # (planned) current competition tracker
+│   │   └── events.py                 # (empty, planned)
+│   ├── scraper/
+│   │   ├── __init__.py
+│   │   ├── scrape_athletes.py        # Pre-load 15 Indian athletes from Wikipedia
+│   │   ├── scrape_events.py          # (empty, planned)
+│   │   └── cleanup.py                # Reset database to original 15 athletes
+│   └── extension/                    # (planned) Chrome extension
+└── venv/                             # Python virtual environment
+```
+
+---
+
+## All Tools Built
+
+| # | Tool | Function | What It Does |
+|---|---|---|---|
+| 1 | get_athlete_info | athlete.py | Looks up athlete from JSON database. Partial match returns clarification. |
+| 2 | scrape_and_add_athlete | scraper_tool.py | Scrapes Wikipedia for new athlete. Checks nationality first — blocks non-Indians. |
+| 3 | check_nationality | nationality.py | Scrapes Wikipedia infobox for nationality. Returns is_indian: true/false. |
+| 4 | save_user_preference | preferences.py | Saves favorite athletes/events/interests to JSON file. |
+| 5 | get_user_preferences | preferences.py | Loads saved preferences. Used for recommendations. |
+| 6 | compare_to_records | records.py | Compares athlete PB to world record and Olympic record. |
+
+---
+
+## Agent Instructions (System Prompt)
+
+```
+You are an athletics trivia agent. You ONLY cover Indian athletes.
+
+RULES:
+1. ALWAYS ask for the full name (first name + last name) if only one name given
+2. When asked about any athlete, ALWAYS call get_athlete_info first.
+3. If not found, ALWAYS call scrape_and_add_athlete. Never answer from your own knowledge.
+4. If scrape_and_add_athlete returns BLOCKED, tell user: "Sorry, this agent only covers Indian athletes."
+5. You must NEVER answer questions about athletes without using your tools first.
+6. You have no knowledge of your own. You can only share what the tools return.
+7. When user mentions liking/following an athlete or event, call save_user_preference.
+8. When user asks for recommendations, call get_user_preferences first.
+9. When user asks about world/Olympic records, call compare_to_records.
+```
+
+---
+
+## What's Next (Planned)
+
+### Chrome Extension (approved plan, not yet built)
+- Flask API server wrapping the LangChain agent
+- Chrome extension with popup chatbot UI
+- Background script checking World Athletics for Indian athlete competitions
+- Chrome notifications: "Indian athletes competing today!"
+
+### Telegram Bot (from original roadmap)
+- python-telegram-bot library
+- Webhook deployment on Google Cloud Run
+
+### Deployment
+- Docker container
+- Google Cloud Run or Railway
+- Environment variables for API keys
+
+---
+
+## Data Sources
+- **Wikipedia** — athlete profiles, personal bests, achievements, nationality (free, no key)
+- **World Athletics** — competition calendars, results (planned, free, scraping)
+- **OpenRouter API** — LLM access to free models (free tier, API key required)
+- **Google AI Studio** — Gemini API access (free tier, API key required)
+
+## APIs & Costs
+- OpenRouter API — free tier (20 req/min, 1000 req/day)
+- Google Gemini API — free tier (5 req/min per model)
+- Wikipedia — no API key needed, just HTTP requests with User-Agent
+- Total monthly cost: $0
+
+---
+
+## How to Run
+
+### Terminal chatbot (current):
+```
+cd ~/Desktop/claude-projects/athletics-agent
+source venv/bin/activate
+python -m athletics_trivia.agent_langchain
+```
+
+### Pre-load athletes:
+```
+python -m athletics_trivia.scraper.scrape_athletes
+```
+
+### Reset database:
+```
+python -m athletics_trivia.scraper.cleanup
+```
+
+### ADK version (legacy):
+```
+adk run athletics_trivia
+```
