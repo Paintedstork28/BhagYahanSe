@@ -651,21 +651,8 @@ function showMedalBanner(medals, newMedalKeys = [], lastNewMedals = []) {
   // Build set of new medal keys for highlighting in table
   const newKeySet = new Set(newMedalKeys);
 
-  // Deduplicate medals — normalize sport + athlete + event for comparison
-  const seen = new Set();
-  const deduped = [];
-  medals.forEach((m) => {
-    const sport = (m.sport || "").toLowerCase().trim();
-    const athlete = m.athlete.split(",")[0].trim().toLowerCase();
-    const event = (m.event || "").toLowerCase()
-      .replace(/\s+/g, " ").replace(/×/g, "x").replace(/ x /g, "x")
-      .replace(/\d+\s*m\b/g, (match) => match.replace(/\s/g, ""));
-    const key = `${m.medal}|${sport}|${athlete}|${event}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(m);
-    }
-  });
+  // Server already handles dedup — use medals as-is
+  const deduped = medals;
 
   const banner = document.createElement("div");
   banner.id = "medal-banner";

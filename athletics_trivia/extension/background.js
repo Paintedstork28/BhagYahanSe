@@ -13,6 +13,8 @@ chrome.storage.local.remove([
   "athletics_chat_history", "athletics_session_id",
   DISMISSED_KEY,  // Reset dismissed flag on reload
   "lastNewMedals",  // Clear stale updates on reload
+  SEEN_MEDALS_KEY,  // Reset seen medals — prevents stale key accumulation
+  NEW_MEDALS_KEY,   // Reset new medal keys
 ]);
 
 // Set up alarms on install AND on every service worker startup
@@ -130,13 +132,10 @@ async function checkForNewMedals() {
         });
       }
 
-      // Badge: show new medal count if any, else total
-      if (allNewKeys.length > 0) {
-        chrome.action.setBadgeText({ text: String(allNewKeys.length) });
-        chrome.action.setBadgeBackgroundColor({ color: "#27ae60" }); // green for new
-      } else if (data.medals.length > 0) {
+      // Badge: always show total medal count
+      if (data.medals.length > 0) {
         chrome.action.setBadgeText({ text: String(data.medals.length) });
-        chrome.action.setBadgeBackgroundColor({ color: "#FFD700" }); // gold for total
+        chrome.action.setBadgeBackgroundColor({ color: allNewKeys.length > 0 ? "#27ae60" : "#FFD700" });
       }
 
       // Store medal updates for the banner's "Recent updates" section

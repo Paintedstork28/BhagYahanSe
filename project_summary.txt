@@ -161,6 +161,22 @@ Problems solved:
 - Flow: load cache → seed seen_keys → scrape new → dedup against cache → IOA validate → save cache
 - Cache file is gitignored (runtime artifact)
 
+## Source Architecture Overhaul (Phase 16)
+- **Problem**: DDG News caused count drift (62 → 64 → 68) — non-deterministic results bypassed dedup, and additive cache made it permanent
+- **Solution**: Dropped DDG entirely. New source hierarchy:
+  1. **Indian Express liveblog** — primary medal source (editorially maintained, complete list in JSON-LD FAQPage block)
+  2. **Wikipedia** — date/sport backfill only, never adds medals
+  3. **IOA (olympic.ind.in)** — tally validation ceiling (G/S/B counts must not exceed official)
+  4. **Persistent cache** — preserves `_is_team` flag for stable dedup across reloads
+- **Key bugs fixed**:
+  - Gender extraction from athlete name when event has no gender prefix (Kabaddi, Cricket, Archery)
+  - Team detection via "team" in athlete name (e.g., "Men's compound archery team")
+  - Wikipedia backfill was destroying `_is_team` flags → cached entries got wrong dedup keys → duplicates on every poll
+  - Cache load now uses `_try_add_medal` (proper dedup) instead of blind append
+  - Badge always shows total medal count (not accumulated stale "new" keys)
+  - Popup removed redundant client-side dedup (server handles it)
+- **Result**: 62 medals (G:10 S:22 B:30) — matches IOA exactly, stable across consecutive polls
+
 ## What It Can Be Used For
 - Real-time medal tracking during Asian Games, Olympics, Commonwealth Games
 - Quick athlete lookups with AI chatbot

@@ -286,11 +286,15 @@ def get_all_sport_medals() -> dict:
     """Get ALL Indian medals (all sports) at current multi-sport competitions.
 
     Used for background notifications and medal banner — not the chatbot tool.
-    Checks two sources:
-    1. DDG News search — finds sports news pages with live medal tables (fastest)
-    2. Wikipedia Medalists section — reliable fallback with sport labels
+    Sources (in order):
+    1. Persistent cache (additive — medals never removed once validated)
+    2. Indian Express liveblog (reliable, complete medal list)
+    3. Wikipedia Medalists section (date backfill only — not for medal discovery)
+    4. IOA official tally (validation ceiling)
 
-    Deduplicates across sources by (athlete, event).
+    DDG removed — was source of count instability due to non-deterministic results.
+
+    Deduplicates across sources by (sport, medal_type, gender, event, entry_type).
     """
     year = datetime.now().year
     all_medals = []
@@ -354,6 +358,9 @@ def get_all_sport_medals() -> dict:
             return True
         if "team india" in athlete or "india " in athlete or "indian " in athlete:
             return True
+        # "team" in athlete name (e.g. "Women's compound archery team")
+        if "team" in athlete:
+            return True
         # Multiple athletes: commas or "and" between names
         if athlete.count(",") >= 1:
             return True
@@ -375,17 +382,23 @@ def get_all_sport_medals() -> dict:
         medal_type = medal.get("medal", "").lower().strip()
         event_key = _normalize_event_key(medal.get("event", ""))
 
-        # Extract gender from original event to avoid collapsing men's and women's
+        # Extract gender from event, then athlete name as fallback
         event_lower = medal.get("event", "").lower()
+        athlete_lower = medal.get("athlete", "").lower()
         if "women" in event_lower or "female" in event_lower:
             gender = "w"
         elif "mixed" in event_lower:
             gender = "x"
         elif "men" in event_lower:
             gender = "m"
+        elif "women" in athlete_lower or "female" in athlete_lower:
+            gender = "w"
+        elif "mixed" in athlete_lower:
+            gender = "x"
+        elif re.match(r".*\bmen\b", athlete_lower):
+            gender = "m"
         else:
-            # No gender prefix — could be men's or women's
-            # Use "u" (unknown) so it can match either
+            # No gender info anywhere — use "u" (unknown) so it can match either
             gender = "u"
 
         # Use pre-computed team flag if available (set by _try_add_medal
@@ -433,10 +446,13 @@ def get_all_sport_medals() -> dict:
         """Normalize medal, check exact + fuzzy dedup, add if unique."""
         # Pre-facto normalization
         m = _normalize_medal(m)
-        # Determine team entry BEFORE normalizing athlete name
-        # (normalization strips commas/keywords that team detection relies on)
-        is_team = _is_team_entry(m)
-        # Store team flag so _dedup_key_all can use it
+        # Use saved _is_team flag from cache if available (cached entries
+        # have normalized athlete names that break team re-detection)
+        if "_is_team" in m:
+            is_team = m["_is_team"]
+        else:
+            # Determine team entry BEFORE normalizing athlete name
+            is_team = _is_team_entry(m)
         m["_is_team"] = is_team
         # Normalize team names for team events
         if is_team:
@@ -457,17 +473,15 @@ def get_all_sport_medals() -> dict:
         return True
 
     # ── Persistent cache: load previously discovered medals ──────────
+    # Cache entries go through _try_add_medal for proper dedup (not blind append).
+    # Cached medals preserve their _is_team flag to avoid re-detection issues
+    # (normalized athlete names like "women cricket" lose team signals).
     if os.path.exists(cache_path):
         try:
             with open(cache_path) as f:
                 cached = json.load(f)
             for m in cached.get("medals", []):
-                all_medals.append(m)
-                # Re-add _is_team flag for dedup key computation
-                m["_is_team"] = _is_team_entry(m)
-                key = _dedup_key_all(m)
-                _add_key(key)
-                m.pop("_is_team", None)
+                _try_add_medal(m)
         except (json.JSONDecodeError, IOError):
             pass  # Corrupted cache — start fresh
 
@@ -478,14 +492,7 @@ def get_all_sport_medals() -> dict:
         m["competition"] = comp_fallback
         _try_add_medal(m)
 
-    # Source 2: DDG News search (finds live medal tables)
-    for comp_name in competition_names:
-        ddg_medals = _scrape_all_medals_ddg_news(comp_name)
-        for m in ddg_medals:
-            m["competition"] = comp_name
-            _try_add_medal(m)
-
-    # Source 3: Wikipedia Medalists section (reliable, has sport labels)
+    # Source 2: Wikipedia Medalists section (date backfill only)
     wiki_targets = []
     for comp_name in competition_names:
         wiki_slug = comp_name.replace(" ", "_")
@@ -493,25 +500,23 @@ def get_all_sport_medals() -> dict:
         wiki_targets.append((url, comp_name))
 
     for url, comp_name in wiki_targets:
-        medals = _scrape_medalists_section(url, HEADERS, sport_filter=None)
-        for m in medals:
-            m["competition"] = comp_name
-            m.setdefault("source", "wikipedia")
-            # Normalize date to ISO format before adding
+        wiki_medals = _scrape_medalists_section(url, HEADERS, sport_filter=None)
+        for m in wiki_medals:
+            # Wikipedia is date/sport backfill ONLY — never adds new medals
             if m.get("date"):
                 m["date"] = _normalize_date(m["date"], year)
-            added = _try_add_medal(m)
-            if not added:
-                # Wikipedia has sport labels and dates — backfill onto DDG entries
-                key = _dedup_key_all(_normalize_medal(m))
-                for existing in all_medals:
-                    ekey = _dedup_key_all(existing)
-                    if ekey[0] == key[0] and ekey[2:] == key[2:]:
-                        if m.get("sport") and not existing.get("sport"):
-                            existing["sport"] = m["sport"]
-                        if m.get("date") and not existing.get("date"):
-                            existing["date"] = m["date"]
-                        break
+            m_norm = _normalize_medal(m)
+            m_norm["_is_team"] = _is_team_entry(m_norm)
+            key = _dedup_key_all(m_norm)
+            for existing in all_medals:
+                # Use existing _is_team flag (don't re-compute — names are normalized)
+                ekey = _dedup_key_all(existing)
+                if ekey[0] == key[0] and ekey[2:] == key[2:]:
+                    if m.get("sport") and not existing.get("sport"):
+                        existing["sport"] = m["sport"]
+                    if m.get("date") and not existing.get("date"):
+                        existing["date"] = m["date"]
+                    break
 
     # Source 3: IOA official page — cross-check total counts
     official_tally = _scrape_ioa_tally()
@@ -519,11 +524,7 @@ def get_all_sport_medals() -> dict:
     # IOA Tally Gate: validate our counts don't exceed official
     validation = _validate_against_ioa(all_medals, official_tally)
 
-    # Clean up internal fields before returning
-    for m in all_medals:
-        m.pop("_is_team", None)
-
-    # ── Persistent cache: save all discovered medals ─────────────────
+    # ── Persistent cache: save WITH _is_team flag for stable dedup on reload
     try:
         with open(cache_path, "w") as f:
             json.dump({
@@ -532,6 +533,10 @@ def get_all_sport_medals() -> dict:
             }, f, indent=2)
     except IOError:
         pass  # Can't write cache — non-fatal
+
+    # Clean up internal fields before returning API response
+    for m in all_medals:
+        m.pop("_is_team", None)
 
     return {
         "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
