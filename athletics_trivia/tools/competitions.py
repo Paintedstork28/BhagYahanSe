@@ -92,9 +92,10 @@ def _fuzzy_match_exists(key, seen_keys: set) -> bool:
         words1 = set(event_key.split())
         words2 = set(e_event.split())
         if not words1 or not words2:
-            if words1 == words2:
-                return True
-            continue
+            # One or both events empty after normalization — match if
+            # sport+medal+gender already aligned (common for sports with
+            # one event per gender like kabaddi, cricket, weightlifting)
+            return True
         overlap = len(words1 & words2)
         max_len = max(len(words1), len(words2))
         if overlap / max_len >= 0.8:
@@ -301,10 +302,12 @@ def get_all_sport_medals() -> dict:
         event = event_raw.lower().strip()
         event = event.replace("\u2019", "'")
         # Strip gender prefixes (including standalone "Women's" or "Men's")
-        event = re.sub(r"^(men'?s?|women'?s?|mixed)\s*", "", event)
+        event = re.sub(r"(men'?s?|women'?s?|mixed)", " ", event)
         # Remove filler words including "team" — we distinguish individual vs team
         # using athlete count instead (more reliable across sources)
-        for word in ("tournament", "team", "traditional", "event"):
+        for word in ("tournament", "team", "traditional", "event",
+                     "individual", "class", "weight", "throw", "category",
+                     "compound", "air", "singles"):
             event = re.sub(rf"\b{word}\b", " ", event)
         event = re.sub(r"\s+", " ", event).strip()
         # Normalize relay: "4 × 100 m" -> "4x100m", "4x100" -> "4x100m"
@@ -322,6 +325,21 @@ def get_all_sport_medals() -> dict:
         event = re.sub(r"-?(\d+)\s*kg", r"\1kg", event)
         # Normalize "3 positions" / "3p" / "three positions"
         event = event.replace("three positions", "3p").replace("3 positions", "3p")
+        # Common typos
+        event = event.replace("jumo", "jump")
+        # Strip sport names from event (sport is a separate dedup dimension)
+        for sport in ("archery", "badminton", "boxing", "cricket", "kabaddi",
+                       "shooting", "squash", "tennis", "wrestling", "weightlifting",
+                       "wushu", "rowing", "sailing", "judo", "fencing", "golf",
+                       "gymnastics", "diving", "cycling", "karate", "kurash",
+                       "mma", "soft", "athletics"):
+            event = re.sub(rf"\b{sport}\b", " ", event)
+        # Strip "greco" and "roman" (handled via sport canonicalization)
+        event = re.sub(r"\bgreco\b", " ", event)
+        event = re.sub(r"\broman\b", " ", event)
+        # Remove standalone dashes and clean whitespace
+        event = re.sub(r"(?:^|\s)-(?:\s|$)", " ", event)
+        event = re.sub(r"\s+", " ", event).strip()
         # Remove extra whitespace, sort words
         words = sorted(event.split())
         return " ".join(w for w in words if w)
@@ -334,7 +352,7 @@ def get_all_sport_medals() -> dict:
             return True
         if "doubles" in event or "pair" in event:
             return True
-        if "team india" in athlete or "india " in athlete:
+        if "team india" in athlete or "india " in athlete or "indian " in athlete:
             return True
         # Multiple athletes: commas or "and" between names
         if athlete.count(",") >= 1:
@@ -453,14 +471,21 @@ def get_all_sport_medals() -> dict:
         except (json.JSONDecodeError, IOError):
             pass  # Corrupted cache — start fresh
 
-    # Source 1: DDG News search (fastest — finds live medal tables)
+    # Source 1: Indian Express hardcoded article (reliable, complete)
+    ie_medals = _scrape_indian_express_medals()
+    comp_fallback = competition_names[0] if competition_names else "2026 Asian Games"
+    for m in ie_medals:
+        m["competition"] = comp_fallback
+        _try_add_medal(m)
+
+    # Source 2: DDG News search (finds live medal tables)
     for comp_name in competition_names:
         ddg_medals = _scrape_all_medals_ddg_news(comp_name)
         for m in ddg_medals:
             m["competition"] = comp_name
             _try_add_medal(m)
 
-    # Source 2: Wikipedia Medalists section (reliable, has sport labels)
+    # Source 3: Wikipedia Medalists section (reliable, has sport labels)
     wiki_targets = []
     for comp_name in competition_names:
         wiki_slug = comp_name.replace(" ", "_")
@@ -554,6 +579,120 @@ def _scrape_ioa_tally() -> dict:
         return {}
     except requests.exceptions.RequestException:
         return {}
+
+
+def _scrape_indian_express_medals() -> list:
+    """Scrape India's medal list from Indian Express liveblog.
+
+    Hardcoded source — editorially maintained, comprehensive medal list
+    grouped by sport. Data is in a JSON-LD FAQPage block (mainEntity →
+    acceptedAnswer → text).
+    """
+    url = ("https://indianexpress.com/article/sports/"
+           "asian-games-2026-india-day-13-live-wrestling-cricket-archery-"
+           "boxing-hockey-medal-tally-10901375/")
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return []
+        html = resp.text
+    except requests.exceptions.RequestException:
+        return []
+
+    # Medal data is in a JSON-LD FAQPage structured data block
+    import json as _json
+    text = ""
+    for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
+        if 'Athletics' not in block or 'Gold' not in block:
+            continue
+        try:
+            data = _json.loads(block)
+            main = data.get("mainEntity", {})
+            if isinstance(main, dict):
+                text = main.get("acceptedAnswer", {}).get("text", "")
+            elif isinstance(main, list):
+                for item in main:
+                    t = item.get("acceptedAnswer", {}).get("text", "")
+                    if "Athletics" in t and "Gold" in t:
+                        text = t
+                        break
+        except (ValueError, KeyError):
+            continue
+        if text:
+            break
+
+    if not text:
+        return []
+
+    medals = []
+    sport_names_set = {
+        "athletics", "shooting", "kabaddi", "cricket", "archery", "boxing",
+        "squash", "table tennis", "mixed martial arts", "kurash",
+        "weightlifting", "soft tennis", "badminton", "wushu", "rowing",
+        "wrestling", "sailing", "hockey", "volleyball", "swimming",
+        "judo", "fencing", "golf", "gymnastics", "tennis", "diving",
+        "cycling", "equestrian", "taekwondo", "karate",
+    }
+
+    # Split on newlines — each line is either a sport heading or a medal entry
+    lines = [ln.strip() for ln in text.replace('\r\n', '\n').split('\n') if ln.strip()]
+
+    current_sport = ""
+    for line in lines:
+        # Strip parenthetical notes (records, history)
+        clean = re.sub(r'\([^)]*\)', '', line)
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        if not clean:
+            continue
+
+        # Check if this line is a sport heading (exact match)
+        if clean.lower() in sport_names_set:
+            current_sport = clean
+            continue
+
+        if not current_sport:
+            continue
+
+        # Parse: "Athlete — Event — Medal" or "Team Name – Medal"
+        # First extract medal type from end
+        medal_match = re.search(r'[\u2014\u2013\-–—]\s*(Gold|Silver|Bronze)\s*$', clean, re.IGNORECASE)
+        if not medal_match:
+            # Try without dash: "Team Name Gold" at end
+            medal_match = re.search(r'\b(Gold|Silver|Bronze)\s*$', clean, re.IGNORECASE)
+        if not medal_match:
+            continue
+
+        medal_type = medal_match.group(1).strip().capitalize()
+        pre_medal = clean[:medal_match.start()].strip()
+        # Remove trailing dash
+        pre_medal = re.sub(r'[\u2014\u2013\-–—\s]+$', '', pre_medal).strip()
+
+        # Split on dash variants to get athlete and event
+        parts = re.split(r'\s*[\u2014\u2013\-–—]\s*', pre_medal)
+        parts = [p.strip() for p in parts if p.strip()]
+
+        if len(parts) >= 2:
+            event = parts[-1]
+            athlete = ' - '.join(parts[:-1]) if len(parts) > 2 else parts[0]
+        elif len(parts) == 1:
+            athlete = parts[0]
+            event = current_sport
+        else:
+            continue
+
+        if len(athlete) < 3 or len(event) < 2:
+            continue
+
+        medals.append({
+            "medal": medal_type,
+            "athlete": athlete,
+            "event": event,
+            "sport": current_sport,
+            "date": "",
+            "source": "indian_express",
+        })
+
+    return medals
 
 
 def _scrape_all_medals_ddg_news(competition_name: str) -> list:
