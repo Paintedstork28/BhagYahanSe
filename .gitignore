@@ -5,6 +5,9 @@
 .adk/
 athletics_trivia/.adk/
 
+# Runtime data (medal cache is a runtime artifact, not source)
+athletics_trivia/data/medals_cache.json
+
 # Python
 venv/
 __pycache__/

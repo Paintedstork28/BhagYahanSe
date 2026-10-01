@@ -153,6 +153,14 @@ Problems solved:
 - 85 scraped medals → 60 actual (5 rounds of dedup iteration)
 - IOA tally gate validates our counts never exceed official numbers
 
+## Persistent Medal Cache (Phase 15)
+- DDG search results are non-deterministic — medals found in one scrape can vanish in the next
+- Medal counts were fluctuating (59 → 62 → 59) because every poll scraped from scratch
+- Solution: `medals_cache.json` persists all discovered medals between polls
+- **Additive only** — medals only get added, never removed once validated
+- Flow: load cache → seed seen_keys → scrape new → dedup against cache → IOA validate → save cache
+- Cache file is gitignored (runtime artifact)
+
 ## What It Can Be Used For
 - Real-time medal tracking during Asian Games, Olympics, Commonwealth Games
 - Quick athlete lookups with AI chatbot

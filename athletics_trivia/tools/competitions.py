@@ -4,6 +4,8 @@ Scrapes Wikipedia for current athletics competitions featuring Indian athletes.
 Focuses on the Athletics section of "India at the YYYY Asian Games" and similar pages.
 """
 
+import json
+import os
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -292,6 +294,7 @@ def get_all_sport_medals() -> dict:
     year = datetime.now().year
     all_medals = []
     seen_keys = set()
+    cache_path = os.path.join(os.path.dirname(__file__), "..", "data", "medals_cache.json")
 
     def _normalize_event_key(event_raw):
         """Aggressively normalize event name for dedup."""
@@ -435,6 +438,21 @@ def get_all_sport_medals() -> dict:
         all_medals.append(m)
         return True
 
+    # ── Persistent cache: load previously discovered medals ──────────
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path) as f:
+                cached = json.load(f)
+            for m in cached.get("medals", []):
+                all_medals.append(m)
+                # Re-add _is_team flag for dedup key computation
+                m["_is_team"] = _is_team_entry(m)
+                key = _dedup_key_all(m)
+                _add_key(key)
+                m.pop("_is_team", None)
+        except (json.JSONDecodeError, IOError):
+            pass  # Corrupted cache — start fresh
+
     # Source 1: DDG News search (fastest — finds live medal tables)
     for comp_name in competition_names:
         ddg_medals = _scrape_all_medals_ddg_news(comp_name)
@@ -479,6 +497,16 @@ def get_all_sport_medals() -> dict:
     # Clean up internal fields before returning
     for m in all_medals:
         m.pop("_is_team", None)
+
+    # ── Persistent cache: save all discovered medals ─────────────────
+    try:
+        with open(cache_path, "w") as f:
+            json.dump({
+                "medals": all_medals,
+                "last_updated": datetime.now().isoformat(),
+            }, f, indent=2)
+    except IOError:
+        pass  # Can't write cache — non-fatal
 
     return {
         "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
