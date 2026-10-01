@@ -146,7 +146,7 @@ async function checkForNewMedals() {
         lastMedalCheck: data,
         lastMedalCheckTime: new Date().toISOString(),
       };
-      if (newMedals.length > 0) {
+      if (!isFirstCheck && newMedals.length > 0) {
         storeData.lastNewMedals = newMedals;
       }
       chrome.storage.local.set(storeData);

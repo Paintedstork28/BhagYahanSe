@@ -518,6 +518,15 @@ def get_all_sport_medals() -> dict:
                         existing["date"] = m["date"]
                     break
 
+    # Stamp any still-undated medals with today's date (JST).
+    # Runs after Wikipedia backfill so correct dates take priority.
+    from datetime import timedelta, timezone as tz
+    jst = tz(timedelta(hours=9))
+    today_jst = datetime.now(jst).strftime("%Y-%m-%d")
+    for m in all_medals:
+        if not m.get("date"):
+            m["date"] = today_jst
+
     # Source 3: IOA official page — cross-check total counts
     official_tally = _scrape_ioa_tally()
 
