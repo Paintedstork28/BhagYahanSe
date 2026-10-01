@@ -1,6 +1,6 @@
 const API_BASE = "http://127.0.0.1:5000";
 const IDLE_INTERVAL = 360;  // 6 hours — check if any competition is active
-const ACTIVE_INTERVAL = 60; // 1 hour — check for new medals during active competition
+const ACTIVE_INTERVAL = 15; // 15 minutes — check for new medals during active competition
 const SEEN_MEDALS_KEY = "athletics_seen_medals";
 const NEW_MEDALS_KEY = "athletics_new_medal_keys";
 const DISMISSED_KEY = "athletics_banner_dismissed";

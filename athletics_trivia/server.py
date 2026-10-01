@@ -8,7 +8,8 @@ Run: python -m athletics_trivia.server
 """
 
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -99,15 +100,62 @@ def get_all_sport_medals() -> dict:
     """Get ALL medals won by India across ALL sports (shooting, archery, wrestling,
     athletics, swimming, etc.) at the current multi-sport competition like the Asian Games.
     Call this when the user asks about India's overall medal tally, medals in non-athletics
-    sports (e.g. shooting, archery, boxing, wrestling), or today's medals across all sports.
+    sports (e.g. shooting, archery, boxing, wrestling).
     This is the preferred tool for general medal queries."""
     return _get_all_sport_medals()
 
 
+# Japan Standard Time (UTC+9) for Asian Games in Nagoya
+JST = timezone(timedelta(hours=9))
+
+
+@tool
+def get_medals_by_date(date: str) -> dict:
+    """Get medals won by India on a specific date. Use this when the user asks about
+    'today's medals', 'yesterday's medals', or medals on a specific date.
+    Args:
+        date: 'today', 'yesterday', or a date like '2026-09-25' or 'September 25'.
+    All dates use Japan Standard Time (JST) since the Asian Games are in Nagoya, Japan."""
+    now_jst = datetime.now(JST)
+    year = now_jst.year
+
+    if date.lower() == "today":
+        target = now_jst.strftime("%Y-%m-%d")
+    elif date.lower() == "yesterday":
+        target = (now_jst - timedelta(days=1)).strftime("%Y-%m-%d")
+    elif re.match(r"\d{4}-\d{2}-\d{2}", date):
+        target = date
+    else:
+        # Try parsing "September 25" or "25 September"
+        for fmt in ("%B %d", "%d %B"):
+            try:
+                dt = datetime.strptime(date.strip(), fmt)
+                target = dt.replace(year=year).strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                continue
+        else:
+            return {"error": f"Could not parse date: '{date}'. Use 'today', 'yesterday', or 'YYYY-MM-DD'."}
+
+    all_data = _get_all_sport_medals()
+    day_medals = [m for m in all_data.get("medals", []) if m.get("date") == target]
+
+    return {
+        "date": target,
+        "date_jst": f"{target} (JST)",
+        "medals": day_medals,
+        "count": len(day_medals),
+        "gold": sum(1 for m in day_medals if m["medal"].lower() == "gold"),
+        "silver": sum(1 for m in day_medals if m["medal"].lower() == "silver"),
+        "bronze": sum(1 for m in day_medals if m["medal"].lower() == "bronze"),
+    }
+
+
 # ── Agent setup ────────────────────────────────────────────────────────
 
+_now_jst = datetime.now(JST)
 SYSTEM_PROMPT = f"""You are an athletics trivia agent. You ONLY cover Indian athletes.
-Today's date is {datetime.now().strftime("%A, %B %d, %Y")}.
+Today's date is {_now_jst.strftime("%A, %B %d, %Y")} (Japan Standard Time — the Asian Games are in Nagoya, Japan).
 
 CRITICAL: You must NEVER fabricate, guess, or infer any results, medals, times, or placements.
 Only state facts that are explicitly present in tool responses. If a tool says an athlete won
@@ -135,10 +183,13 @@ RULES:
     athletics/track-and-field medals only, call get_medals. If unsure which to use, prefer
     get_all_sport_medals as it covers everything. Always mention the competition name
     (e.g. "at the 2026 Asian Games") when reporting medals.
-11. Use today's date to determine correct tense. If an event date is before today, say
-    "yesterday" or the actual date — never say "today" unless it is actually today.
+11. Use today's date (JST) to determine correct tense. If an event date is before today, say
+    "yesterday" or the actual date — never say "today" unless it is actually today in JST.
 12. When reporting medals or results, copy the exact athlete name and exact event name
     from the tool data. Do not paraphrase event names or combine separate entries.
+13. When the user asks about "today's medals", "yesterday's medals", or medals on a
+    specific date, call get_medals_by_date with "today", "yesterday", or the date.
+    All dates use Japan Standard Time (JST, UTC+9) since the Asian Games are in Nagoya.
 
 Be enthusiastic but accurate. Never guess — if the data doesn't say it, don't say it."""
 
@@ -158,6 +209,7 @@ tools_list = [
     get_competitions,
     get_medals,
     get_all_sport_medals,
+    get_medals_by_date,
 ]
 
 agent = create_agent(

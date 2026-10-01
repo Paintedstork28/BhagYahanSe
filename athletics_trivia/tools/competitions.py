@@ -12,6 +12,171 @@ from datetime import datetime
 
 HEADERS = {"User-Agent": "AthleticsTrivia/1.0 (student project)"}
 
+# Canonical sport names — map variants to a single canonical form
+SPORT_ALIASES = {
+    "mma": "mixed martial arts",
+    "marathon": "athletics",
+    "race walk": "athletics",
+    "race walking": "athletics",
+    "soft-tennis": "soft tennis",
+    "track and field": "athletics",
+}
+
+
+def _canonicalize_sport(sport: str) -> str:
+    """Map sport name to canonical form."""
+    s = sport.lower().strip()
+    return SPORT_ALIASES.get(s, s)
+
+
+def _normalize_team_name(athlete_str: str) -> str:
+    """Normalize team names to a canonical form for dedup.
+
+    'Indian women's cricket team' → 'women cricket'
+    'India women's national cricket team + team' → 'women cricket'
+    'Arjun M. R. + team' → kept as-is (not a generic team name)
+    """
+    a = athlete_str.lower().strip()
+    # Only normalize generic team names (contain "india" or "indian")
+    if "india" not in a:
+        return a
+    # Strip country identifiers and filler
+    for word in ("indian", "india", "national", "+ team", "team", "'s", "\u2019s"):
+        a = a.replace(word, " ")
+    a = re.sub(r"\s+", " ", a).strip()
+    return a
+
+
+def _fuzzy_match_exists(key, seen_keys: set) -> bool:
+    """Check if a fuzzy match for this key exists in seen_keys.
+
+    Handles:
+    - Sport aliases (MMA vs Mixed martial arts)
+    - Event word overlap ≥ 80%
+    - Unknown gender matching (existing logic)
+    - Same medal type required
+    """
+    sport, medal_type, gender, event_key, entry_type = key
+
+    for existing in seen_keys:
+        e_sport, e_medal, e_gender, e_event, e_entry = existing
+
+        # Medal type must match exactly
+        if medal_type != e_medal:
+            continue
+
+        # Entry type must match
+        if entry_type != e_entry:
+            continue
+
+        # Gender: must match or one is unknown
+        if gender != e_gender:
+            if gender != "u" and e_gender != "u":
+                continue
+
+        # Sport: exact, substring, or word overlap
+        if sport != e_sport:
+            # Check substring containment
+            if sport in e_sport or e_sport in sport:
+                pass  # close enough
+            else:
+                # Check word overlap (e.g. "soft tennis" vs "soft-tennis")
+                s_words = set(re.split(r"[\s-]+", sport))
+                e_words = set(re.split(r"[\s-]+", e_sport))
+                if not (s_words & e_words):
+                    continue
+
+        # Event: word overlap check
+        words1 = set(event_key.split())
+        words2 = set(e_event.split())
+        if not words1 or not words2:
+            if words1 == words2:
+                return True
+            continue
+        overlap = len(words1 & words2)
+        max_len = max(len(words1), len(words2))
+        if overlap / max_len >= 0.8:
+            return True
+
+    return False
+
+
+def _normalize_medal(medal: dict) -> dict:
+    """Return a normalized copy of a medal dict.
+
+    Normalizes sport, event, athlete, and medal type before any dedup check.
+    This is the pre-facto normalization step.
+    """
+    m = dict(medal)  # shallow copy
+    m["sport"] = _canonicalize_sport(m.get("sport", ""))
+    m["medal"] = m.get("medal", "").strip()
+    # Normalize event in-place for display consistency
+    # (dedup key does its own normalization, but this cleans the stored data)
+    return m
+
+
+def _normalize_date(date_str: str, year: int) -> str:
+    """Convert Wikipedia date formats to ISO format.
+
+    '22 September' → '2026-09-22'
+    '1 October' → '2026-10-01'
+    Already ISO → returned as-is.
+    """
+    if not date_str or not date_str.strip():
+        return ""
+    date_str = date_str.strip()
+    # Already ISO format
+    if re.match(r"\d{4}-\d{2}-\d{2}", date_str):
+        return date_str
+    # "22 September" or "1 October"
+    try:
+        dt = datetime.strptime(f"{date_str} {year}", "%d %B %Y")
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    # "September 22" (US format)
+    try:
+        dt = datetime.strptime(f"{date_str} {year}", "%B %d %Y")
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    return date_str
+
+
+def _validate_against_ioa(medals: list, ioa_tally: dict) -> dict:
+    """Compare our medal counts against IOA official tally.
+
+    Returns validation result with match status and discrepancies.
+    IOA is the ceiling — our count should be ≤ IOA count.
+    """
+    if not ioa_tally:
+        return {"valid": True, "message": "IOA tally unavailable — skipping validation"}
+
+    our_gold = sum(1 for m in medals if m.get("medal", "").lower() == "gold")
+    our_silver = sum(1 for m in medals if m.get("medal", "").lower() == "silver")
+    our_bronze = sum(1 for m in medals if m.get("medal", "").lower() == "bronze")
+    our_total = len(medals)
+
+    ioa_gold = ioa_tally.get("gold", 0)
+    ioa_silver = ioa_tally.get("silver", 0)
+    ioa_bronze = ioa_tally.get("bronze", 0)
+    ioa_total = ioa_tally.get("total", 0)
+
+    discrepancies = []
+    if our_gold > ioa_gold:
+        discrepancies.append(f"Gold: ours={our_gold} > IOA={ioa_gold}")
+    if our_silver > ioa_silver:
+        discrepancies.append(f"Silver: ours={our_silver} > IOA={ioa_silver}")
+    if our_bronze > ioa_bronze:
+        discrepancies.append(f"Bronze: ours={our_bronze} > IOA={ioa_bronze}")
+
+    return {
+        "valid": len(discrepancies) == 0,
+        "our_tally": {"gold": our_gold, "silver": our_silver, "bronze": our_bronze, "total": our_total},
+        "ioa_tally": {"gold": ioa_gold, "silver": ioa_silver, "bronze": ioa_bronze, "total": ioa_total},
+        "discrepancies": discrepancies,
+    }
+
 
 def get_medals() -> dict:
     """Get athletics medals won by Indian athletes at current competitions.
@@ -147,6 +312,10 @@ def get_all_sport_medals() -> dict:
         event = event.replace("metres", "m").replace("meters", "m")
         event = event.replace(",", "")
         # Normalize weight classes: "-78kg" -> "78kg", "78 kg" -> "78kg"
+        # Also handle "+90 kg", "90+ kg", "over 90kg" -> "90+kg"
+        event = re.sub(r"\+\s*(\d+)\s*kg", r"\1+kg", event)
+        event = re.sub(r"(\d+)\s*\+\s*kg", r"\1+kg", event)
+        event = re.sub(r"over\s*(\d+)\s*kg", r"\1+kg", event)
         event = re.sub(r"-?(\d+)\s*kg", r"\1kg", event)
         # Normalize "3 positions" / "3p" / "three positions"
         event = event.replace("three positions", "3p").replace("3 positions", "3p")
@@ -160,10 +329,14 @@ def get_all_sport_medals() -> dict:
         event = medal.get("event", "").lower()
         if "team" in event or "relay" in event or "tournament" in event:
             return True
+        if "doubles" in event or "pair" in event:
+            return True
         if "team india" in athlete or "india " in athlete:
             return True
-        # Multiple athletes listed (3+) suggests a team roster
-        if athlete.count(",") >= 2:
+        # Multiple athletes: commas or "and" between names
+        if athlete.count(",") >= 1:
+            return True
+        if " and " in athlete:
             return True
         return False
 
@@ -177,7 +350,7 @@ def get_all_sport_medals() -> dict:
         same sport+event+medal, there's only one Indian winner (or one entry).
         The athlete name is unreliable for dedup due to spelling variants.
         """
-        sport = medal.get("sport", "").lower().strip()
+        sport = _canonicalize_sport(medal.get("sport", ""))
         medal_type = medal.get("medal", "").lower().strip()
         event_key = _normalize_event_key(medal.get("event", ""))
 
@@ -194,13 +367,12 @@ def get_all_sport_medals() -> dict:
             # Use "u" (unknown) so it can match either
             gender = "u"
 
-        # Distinguish individual vs team by athlete count
-        # (more reliable than "team" keyword which varies across sources)
-        athlete_text = medal.get("athlete", "")
-        is_team = (athlete_text.count(",") >= 1
-                   or "team india" in athlete_text.lower()
-                   or "india " in athlete_text.lower()
-                   or "national" in athlete_text.lower())
+        # Use pre-computed team flag if available (set by _try_add_medal
+        # before athlete normalization), otherwise fall back to detection
+        if "_is_team" in medal:
+            is_team = medal["_is_team"]
+        else:
+            is_team = _is_team_entry(medal)
         entry_type = "t" if is_team else "i"
 
         return (sport, medal_type, gender, event_key, entry_type)
@@ -236,20 +408,43 @@ def get_all_sport_medals() -> dict:
         """Add key and its gender-neutral variant to seen_keys."""
         seen_keys.add(key)
 
+    def _try_add_medal(m):
+        """Normalize medal, check exact + fuzzy dedup, add if unique."""
+        # Pre-facto normalization
+        m = _normalize_medal(m)
+        # Determine team entry BEFORE normalizing athlete name
+        # (normalization strips commas/keywords that team detection relies on)
+        is_team = _is_team_entry(m)
+        # Store team flag so _dedup_key_all can use it
+        m["_is_team"] = is_team
+        # Normalize team names for team events
+        if is_team:
+            m["athlete"] = _normalize_team_name(m["athlete"])
+
+        key = _dedup_key_all(m)
+
+        # Exact dedup (with gender-aware matching)
+        if _key_exists(key):
+            return False
+
+        # Fuzzy dedup (sport aliases, event word overlap)
+        if _fuzzy_match_exists(key, seen_keys):
+            return False
+
+        _add_key(key)
+        all_medals.append(m)
+        return True
+
     # Source 1: DDG News search (fastest — finds live medal tables)
     for comp_name in competition_names:
         ddg_medals = _scrape_all_medals_ddg_news(comp_name)
         for m in ddg_medals:
             m["competition"] = comp_name
-            key = _dedup_key_all(m)
-            if not _key_exists(key):
-                _add_key(key)
-                all_medals.append(m)
+            _try_add_medal(m)
 
     # Source 2: Wikipedia Medalists section (reliable, has sport labels)
     wiki_targets = []
     for comp_name in competition_names:
-        # Build Wikipedia URL from competition name
         wiki_slug = comp_name.replace(" ", "_")
         url = f"https://en.wikipedia.org/wiki/India_at_the_{wiki_slug}"
         wiki_targets.append((url, comp_name))
@@ -259,25 +454,37 @@ def get_all_sport_medals() -> dict:
         for m in medals:
             m["competition"] = comp_name
             m.setdefault("source", "wikipedia")
-            key = _dedup_key_all(m)
-            if not _key_exists(key):
-                _add_key(key)
-                all_medals.append(m)
-            elif m.get("sport"):
-                # Wikipedia has sport labels — backfill onto DDG entries missing sport
+            # Normalize date to ISO format before adding
+            if m.get("date"):
+                m["date"] = _normalize_date(m["date"], year)
+            added = _try_add_medal(m)
+            if not added:
+                # Wikipedia has sport labels and dates — backfill onto DDG entries
+                key = _dedup_key_all(_normalize_medal(m))
                 for existing in all_medals:
                     ekey = _dedup_key_all(existing)
-                    if ekey[0] == key[0] and ekey[2:] == key[2:] and not existing.get("sport"):
-                        existing["sport"] = m["sport"]
+                    if ekey[0] == key[0] and ekey[2:] == key[2:]:
+                        if m.get("sport") and not existing.get("sport"):
+                            existing["sport"] = m["sport"]
+                        if m.get("date") and not existing.get("date"):
+                            existing["date"] = m["date"]
                         break
 
     # Source 3: IOA official page — cross-check total counts
     official_tally = _scrape_ioa_tally()
 
+    # IOA Tally Gate: validate our counts don't exceed official
+    validation = _validate_against_ioa(all_medals, official_tally)
+
+    # Clean up internal fields before returning
+    for m in all_medals:
+        m.pop("_is_team", None)
+
     return {
         "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "medals": all_medals,
         "official_tally": official_tally,
+        "tally_validation": validation,
     }
 
 
