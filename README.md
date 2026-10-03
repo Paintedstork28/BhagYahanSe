@@ -227,6 +227,14 @@ Non-Indian athletes are blocked in code (not by prompt) — the LLM can't overri
 
 ---
 
+## Limitations
+
+- **Server must be running locally.** The Flask server runs on your laptop (`localhost:5000`). If your terminal is closed, laptop is off, or the server process stops for any reason, the extension stops getting new data. It will silently show stale cached data from the last successful poll — no error is displayed.
+- **Extension can't scrape directly.** The Chrome extension can't hit external sites (IE, Wikipedia, IOA) due to browser CORS restrictions. All scraping runs server-side in Python. The extension is just a display layer — Flask does all the work.
+- **To keep it always-on, deploy the server.** Options: [Railway](https://railway.app/) (free tier, sleeps after 15 min inactivity), [Render](https://render.com/) (free tier, similar), [Fly.io](https://fly.io/) (free tier, 3 shared VMs), or any VPS ($5-12/mo). Set env vars in their dashboard, update `API_BASE` in `background.js` to the deployed URL.
+
+---
+
 ## Key Technical Decisions
 
 - **Code-level guardrails over prompts** — telling the LLM "only Indian athletes" didn't work (it discussed Usain Bolt). Nationality check enforced in Python.
