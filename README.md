@@ -106,13 +106,15 @@ Structured data → LLM formats response → User
 ### Medal Pipeline
 
 ```
-Indian Express liveblog  →  parse JSON-LD FAQPage  →  62+ medals
+Indian Express liveblogs →  auto-discover day URLs + parse JSON-LD  →  medals with details
+(Days 13, 14, 15, ...)       from IE tag page
         ↓
 Wikipedia medalists page →  backfill dates only (never adds medals)
         ↓
-IOA official tally       →  validation ceiling (our count ≤ IOA count)
+IOA official tally       →  if IE < IOA, add TBD placeholders to match count
+                             (not cached — replaced when IE catches up)
         ↓
-Persistent cache         →  medals_cache.json (additive, preserves _is_team flags)
+Persistent cache         →  medals_cache.json (IE medals only, additive)
         ↓
 5-tuple dedup key        →  (sport, medal_type, gender, event_key, entry_type)
         ↓
@@ -123,9 +125,9 @@ API response             →  Chrome extension badge + banner
 
 | Source | What It Provides | Reliability |
 |---|---|---|
-| [Indian Express liveblog](https://indianexpress.com/) | Complete medal list (athlete, event, sport, medal type) | High — editorially maintained |
+| [Indian Express liveblogs](https://indianexpress.com/) | Complete medal list (athlete, event, sport, medal type). Multiple day URLs scraped + auto-discovered. | High — editorially maintained |
 | Wikipedia | Dates and sport labels for backfill | Medium — lags by hours |
-| [IOA](https://olympic.ind.in/asian-games-2026/) | Official G/S/B tally for validation | High — official source |
+| [IOA](https://olympic.ind.in/asian-games-2026/) | Official G/S/B tally. Gap-fills when IE is behind — adds TBD placeholders for missing medals. | High — official source |
 | OpenRouter API | LLM for chatbot responses | Free tier — 50 req/day |
 
 ---
@@ -183,7 +185,8 @@ BhagYahanSe/
 
 - **Code-level guardrails over prompts** — telling the LLM "only Indian athletes" didn't work (it discussed Usain Bolt). Nationality check enforced in Python.
 - **5-tuple dedup key** — `(sport, medal_type, gender, event_key, entry_type)` with sport canonicalization, fuzzy matching, and team name normalization.
-- **IOA tally gate** — our G/S/B counts validated against official IOA numbers. Our count must never exceed IOA.
+- **Multi-URL IE scraping** — IE publishes a new liveblog each day. Scraper maintains known URLs + auto-discovers new ones from the IE tag page. Dedup handles cross-day overlaps.
+- **IOA gap-fill** — if IE medal count < IOA official tally, TBD placeholders are added to match the IOA count. Placeholders are not cached and get replaced as IE publishes real data.
 - **Persistent cache with `_is_team` flags** — medals once discovered are never lost. Team detection flags survive cache reload to prevent dedup key drift.
 - **Discovery date stamping** — undated medals get stamped with today's date (JST) after Wikipedia backfill, so "today's medals" works even when Wikipedia lags.
 
@@ -232,4 +235,14 @@ BhagYahanSe/
 - Wikipedia demoted to date backfill only
 - Fixed: gender extraction from athlete names, team detection via athlete field, `_is_team` flag preservation across cache reloads
 - Result: matches IOA exactly, stable across consecutive polls
+</details>
+
+<details>
+<summary>Phase 17: Multi-URL IE scraping + IOA gap-fill</summary>
+
+- IE publishes a new liveblog URL each day — scraper was hardcoded to Day 13, missing Days 14+
+- Fix: scrape all known URLs + auto-discover new ones from IE tag page (`/about/asian-games-2026/`)
+- Added IOA gap-fill: when IE count < IOA official tally, TBD placeholders fill the gap (not cached)
+- Placeholders replaced naturally as IE publishes real medal data
+- Result: 78 real medals + 3 TBD = 81 total, matching IOA
 </details>
