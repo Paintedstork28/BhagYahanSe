@@ -530,10 +530,12 @@ def get_all_sport_medals() -> dict:
     # Source 3: IOA official page — cross-check total counts
     official_tally = _scrape_ioa_tally()
 
-    # IOA Tally Gate: validate our counts don't exceed official
+    # IOA Tally Gate: IE is primary. If IE > IOA, trust IE.
+    # If IE < IOA, add placeholders to match IOA count.
+    # Placeholders get replaced as IE publishes real data.
     validation = _validate_against_ioa(all_medals, official_tally)
 
-    # ── Persistent cache: save WITH _is_team flag for stable dedup on reload
+    # ── Persistent cache: save IE-sourced medals only (no placeholders)
     try:
         with open(cache_path, "w") as f:
             json.dump({
@@ -542,6 +544,35 @@ def get_all_sport_medals() -> dict:
             }, f, indent=2)
     except IOError:
         pass  # Can't write cache — non-fatal
+
+    # ── IOA gap-fill: add TBD placeholders for missing medals ──────
+    # Only adds to the returned list, NOT to the cache.
+    # When IE catches up, real medals replace these naturally.
+    if official_tally:
+        our_gold = sum(1 for m in all_medals if m.get("medal", "").lower() == "gold")
+        our_silver = sum(1 for m in all_medals if m.get("medal", "").lower() == "silver")
+        our_bronze = sum(1 for m in all_medals if m.get("medal", "").lower() == "bronze")
+        ioa_gold = official_tally.get("gold", 0)
+        ioa_silver = official_tally.get("silver", 0)
+        ioa_bronze = official_tally.get("bronze", 0)
+
+        comp_name = competition_names[0] if competition_names else "2026 Asian Games"
+        for medal_type, ours, ioa_count in [
+            ("Gold", our_gold, ioa_gold),
+            ("Silver", our_silver, ioa_silver),
+            ("Bronze", our_bronze, ioa_bronze),
+        ]:
+            gap = ioa_count - ours
+            for i in range(max(0, gap)):
+                all_medals.append({
+                    "medal": medal_type,
+                    "athlete": "TBD",
+                    "event": "TBD",
+                    "sport": "TBD",
+                    "date": "",
+                    "source": "ioa_placeholder",
+                    "competition": comp_name,
+                })
 
     # Clean up internal fields before returning API response
     for m in all_medals:
@@ -595,16 +626,59 @@ def _scrape_ioa_tally() -> dict:
         return {}
 
 
-def _scrape_indian_express_medals() -> list:
-    """Scrape India's medal list from Indian Express liveblog.
+def _discover_ie_urls() -> list:
+    """Discover Indian Express Asian Games liveblog URLs.
 
-    Hardcoded source — editorially maintained, comprehensive medal list
-    grouped by sport. Data is in a JSON-LD FAQPage block (mainEntity →
-    acceptedAnswer → text).
+    Checks the IE tag page for asian-games-2026 to find day-wise
+    liveblog articles, supplementing the known URL list.
     """
-    url = ("https://indianexpress.com/article/sports/"
-           "asian-games-2026-india-day-13-live-wrestling-cricket-archery-"
-           "boxing-hockey-medal-tally-10901375/")
+    tag_url = "https://indianexpress.com/about/asian-games-2026/"
+    discovered = []
+    try:
+        resp = requests.get(tag_url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return []
+        # Find links matching the day-wise liveblog pattern
+        pattern = r'href="(https://indianexpress\.com/article/sports/asian-games-2026-india-day-\d+-live[^"]*medal-tally[^"]*)"'
+        discovered = list(set(re.findall(pattern, resp.text)))
+    except requests.exceptions.RequestException:
+        pass
+    return discovered
+
+
+# Known IE liveblog URLs — add new ones as they're published
+_IE_KNOWN_URLS = [
+    ("https://indianexpress.com/article/sports/"
+     "asian-games-2026-india-day-13-live-wrestling-cricket-archery-"
+     "boxing-hockey-medal-tally-10901375/"),
+    ("https://indianexpress.com/article/sports/"
+     "asian-games-2026-india-day-15-live-archery-hockey-cricket-"
+     "wrestling-medal-tally-10904488/"),
+]
+
+
+def _scrape_indian_express_medals() -> list:
+    """Scrape India's medal list from Indian Express liveblogs.
+
+    Scrapes multiple day-wise liveblog URLs (known + auto-discovered).
+    Each liveblog has a JSON-LD FAQPage block with medal data.
+    Dedup across URLs is handled by the caller.
+    """
+    # Combine known URLs with any newly discovered ones
+    urls = list(_IE_KNOWN_URLS)
+    for url in _discover_ie_urls():
+        if url.rstrip("/") not in [u.rstrip("/") for u in urls]:
+            urls.append(url)
+
+    all_medals = []
+    for url in urls:
+        medals = _scrape_single_ie_url(url)
+        all_medals.extend(medals)
+    return all_medals
+
+
+def _scrape_single_ie_url(url: str) -> list:
+    """Scrape medals from a single Indian Express liveblog URL."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15)
         if resp.status_code != 200:
