@@ -166,18 +166,64 @@ BhagYahanSe/
 
 ## Agent Tools
 
+The chatbot uses 10 custom tools. The LLM never answers from its own knowledge — every response must come from a tool call.
+
+### Athlete Lookup Chain
+
+When you ask "Who is Neeraj Chopra?" or "Tell me about Lovlina Borgohain":
+
+1. **`get_athlete_info`** — checks the local JSON database (`athletes.json`) first. Supports partial name matching and asks for clarification if multiple matches exist.
+2. **`scrape_and_add_athlete`** — if not in the database, scrapes the athlete's Wikipedia page. Tries three strategies in order:
+   - Direct Wikipedia URL (`en.wikipedia.org/wiki/First_Last`)
+   - Wikipedia Search API (handles alternate spellings)
+   - DuckDuckGo web search (finds the correct Wikipedia page for misspelled names)
+   - All three strategies ultimately resolve to a Wikipedia page. If no Wikipedia page exists for the athlete, the lookup fails.
+3. **`check_nationality`** — verifies an athlete is Indian before scraping. Checks three sources: Wikipedia infobox → DuckDuckGo Instant Answer API → DuckDuckGo search results.
+
+Non-Indian athletes are blocked in code (not by prompt) — the LLM can't override this.
+
+**What you can ask:**
+- "Who is [athlete name]?" — bio, events, personal bests from Wikipedia
+- "What events does [athlete] compete in?" — parsed from Wikipedia infobox
+- "What is [athlete]'s personal best?" — extracted from their Wikipedia page
+
+### Record Comparison
+
+**`compare_to_records`** — compares an athlete's personal best to the current world record and Olympic record. Scrapes Wikipedia for the event's record page.
+
+**What you can ask:**
+- "How does Neeraj Chopra's PB compare to the world record?"
+- "What is the Olympic record in javelin?"
+
+### Medal Tracking (Asian Games 2026)
+
+| Tool | Scope | Use When |
+|---|---|---|
+| `get_all_sport_medals` | All sports — shooting, archery, wrestling, athletics, etc. | "How many golds has India won?" / "Medal tally" |
+| `get_medals` | Athletics/track-and-field only | "How did India do in athletics?" |
+| `get_medals_by_date` | All sports, filtered by date (JST) | "What did India win today?" / "Yesterday's medals" |
+| `get_competitions` | Current competitions with Indian athletes | "What events are happening?" |
+
+### User Preferences
+
 | Tool | What It Does |
 |---|---|
-| `get_athlete_info` | Looks up athlete from JSON database |
-| `scrape_and_add_athlete` | Scrapes Wikipedia for new athlete, checks nationality |
-| `check_nationality` | Verifies athlete is Indian via Wikipedia |
-| `save_user_preference` | Saves favorite athletes/events |
-| `get_user_preferences` | Loads saved preferences for recommendations |
-| `compare_to_records` | Compares PB to world/Olympic records |
-| `get_competitions` | Current competitions featuring Indian athletes |
-| `get_medals` | Athletics-only medals at current competitions |
-| `get_all_sport_medals` | All-sport medals with dedup + IOA validation |
-| `get_medals_by_date` | Date-filtered medals (today/yesterday/specific date, JST) |
+| `save_user_preference` | Remembers favorite athletes, events, or interests |
+| `get_user_preferences` | Recalls preferences for personalized recommendations |
+
+**What you can ask:**
+- "I'm a fan of javelin" → saves to preferences
+- "What should I watch?" → loads preferences and recommends based on them
+
+---
+
+## Known Issues
+
+| Bug | Description | Root Cause |
+|---|---|---|
+| **LLM hallucinates medal results** | Asked "Who won gold for India at Asian Games 2026?", the chatbot returned fabricated results (P.T. Usha winning Women's 100m, Neeraj Chopra winning javelin) instead of querying the database. Returned 5 fake golds instead of the actual 19. | The free-tier model on OpenRouter (`openrouter/free`) has unreliable tool-calling. It skips tool calls and answers from its outdated training data. Switching to a model with reliable tool-use (e.g., `gpt-4o-mini`, `gemini-2.0-flash`) would fix this, however those models have a cost. |
+| **Free tier rate limit** | OpenRouter free tier allows ~50 requests/day. After that, the chatbot returns a 429 error. | OpenRouter free tier quota. Resets daily, or add credits at openrouter.ai. |
+| **No fallback for athletes without Wikipedia** | Many Indian athletes (especially in non-athletics sports or at the domestic level) don't have Wikipedia pages. The agent returns "Could not find a Wikipedia page" and gives up. DuckDuckGo is only used to find the *correct Wikipedia page* for misspelled names — it doesn't scrape non-Wikipedia sources. | Potential future sources: [indianathletics.in](https://indianathletics.in/athlete-profiles/) (requires headless browser — JS-rendered), [worldathletics.org](https://worldathletics.org) (also JS-rendered, has a GraphQL API but needs reverse-engineering). |
 
 ---
 
